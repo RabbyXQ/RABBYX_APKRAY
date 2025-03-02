@@ -13,6 +13,7 @@ import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import org.tensorflow.lite.Interpreter
 import java.io.*
+import com.rabbyx.apkrey.R
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
@@ -56,50 +57,54 @@ class MainActivity : AppCompatActivity() {
 
         // Start scanning installed apps in the background
         Thread {
-            scanInstalledApps()
+            val installedApps = getInstalledApps()
+
+            val totalApps = installedApps.size
+            var scannedApps = 0
+            var foundMalicious = false
+
+            for (app in installedApps) {
+                val dexImage = DexImageExtractor.extractDexImage(app)
+                if (dexImage != null && dexImage.isNotEmpty()) {
+                    val isMalicious = classifyDexImage(dexImage)
+                    scannedApps++
+
+                    // Update progress bar
+                    val progress = (scannedApps * 100) / totalApps
+                    runOnUiThread {
+                        loadingBar.progress = progress
+                    }
+
+                    if (isMalicious) {
+                        foundMalicious = true
+                        runOnUiThread {
+                            resultText.text = "Malicious App Found: ${app.packageName}"
+                            resultText.setTextColor(getColor(android.R.color.holo_red_dark))
+                        }
+                        break
+                    }
+                }
+            }
+
+            // Finish scanning
+            if (!foundMalicious) {
+                runOnUiThread {
+                    resultText.text = "Scan Complete - No Malicious Apps Found"
+                    resultText.setTextColor(getColor(android.R.color.white))
+                }
+            }
+
+            // Hide loading bar and re-enable the scan button
             runOnUiThread {
-                // Hide loading bar after scanning is complete
                 loadingBar.visibility = ProgressBar.GONE
                 scanButton.isEnabled = true
             }
         }.start()
     }
 
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    private fun scanInstalledApps() {
+    private fun getInstalledApps(): List<ApplicationInfo> {
         val packageManager: PackageManager = packageManager
-        val installedApps: List<ApplicationInfo> = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-
-        var foundMalicious = false
-
-        for (app in installedApps) {
-            Log.d("MainActivity", "Scanning: ${app.packageName}")
-
-            val dexImage = DexImageExtractor.extractDexImage(app)
-            if (dexImage != null && dexImage.isNotEmpty()) {
-                val isMalicious = classifyDexImage(dexImage)
-                Log.d("MainActivity", "${app.packageName} is ${if (isMalicious) "MALICIOUS" else "SAFE"}")
-
-                if (isMalicious) {
-                    foundMalicious = true
-                    runOnUiThread {
-                        resultText.text = "Malicious App Found: ${app.packageName}"
-                        resultText.setTextColor(getColor(android.R.color.holo_red_dark))
-                    }
-
-                    // Wait for 5 seconds before continuing
-                    Thread.sleep(5000)
-                    break
-                }
-            }
-        }
-
-        if (!foundMalicious) {
-            runOnUiThread {
-                resultText.text = "Scan Complete - No Malicious Apps Found"
-                resultText.setTextColor(getColor(android.R.color.black))
-            }
-        }
+        return packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
     }
 
     private fun classifyDexImage(dexImage: ByteArray): Boolean {
